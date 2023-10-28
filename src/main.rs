@@ -8,12 +8,16 @@ use std::{
         HashSet
     }, io::stdin
 };
+use rand::seq::SliceRandom;
 
 trait Search {
-    fn score<T: Ord, Eq>(&self) -> T;
+    type Score: Ord + Eq;
+
+    fn score(&self) -> Self::Score;
     fn moves(&self) -> HashSet<Self> where Self: Sized;
 }
 
+#[derive(Clone, Eq, PartialEq, Hash)]
 struct Grid<T> {
     _data: Vec<T>,
     width: usize,
@@ -57,6 +61,16 @@ enum Piece {
     Empty
 }
 
+impl Piece {
+    fn opponent(&self) -> Self {
+        match self {
+            Piece::Red => Piece::Yellow,
+            Piece::Yellow => Piece::Red,
+            Piece::Empty => Piece::Empty
+        }
+    }
+}
+
 impl Display for Piece {
     fn fmt(&self, f: &mut Formatter<'_>) -> std::fmt::Result {
         match self {
@@ -70,6 +84,7 @@ impl Display for Piece {
 
 type Position = (usize, usize);
 
+#[derive(Clone, Eq)]
 struct Board {
     grid: Grid<Piece>,
     drop_zones: Vec<usize>,
@@ -114,11 +129,7 @@ impl Board {
             let drop_spot = self.drop_zones[x];
             self.drop_zones[x] -= 1;
             self.set(x, drop_spot, self.next_move);
-            self.next_move = match self.next_move {
-                Piece::Yellow => Piece::Red,
-                Piece::Red => Piece::Yellow,
-                a => a
-            };
+            self.next_move = self.next_move.opponent();
             Some(drop_spot)
         } else {
             None
@@ -199,15 +210,35 @@ impl Board {
     }
 }
 
-// impl Search for Board {
-//     fn score<T: Ord, Eq>(&self) -> T {
-//         todo!()
-//     }
+impl Search for Board {
+    type Score = i32;
 
-//     fn moves(&self) -> HashSet<Self> where Self: Sized {
-//         todo!()
-//     }
-// }
+    fn score(&self) -> i32 {
+        match self.winner {
+            Some(piece) => 
+                if piece == self.next_move {
+                    return -1000;
+                } else {
+                    return 1000;
+                },
+            None => ()
+        }
+        self.threats.get(&self.next_move.opponent()).unwrap().iter().count() as i32 - self.threats.get(&self.next_move).unwrap().iter().count() as i32
+    }
+
+    fn moves(&self) -> HashSet<Self> where Self: Sized {
+        self.drop_zones.iter().enumerate().filter_map(|(i, v)| 
+            match v {
+                0 => None,
+                _ => {
+                    let mut new_board = self.clone();
+                    new_board.drop(i);
+                    Some(new_board)
+                }
+            })
+            .collect()
+    }
+}
 
 impl Display for Board {
     fn fmt(&self, f: &mut Formatter<'_>) -> std::fmt::Result {
@@ -237,36 +268,61 @@ impl Display for Board {
     }
 }
 
+impl PartialEq for Board {
+    fn eq(&self, other: &Self) -> bool {
+        self.grid == other.grid && self.next_move == other.next_move
+    }
+}
+
+impl std::hash::Hash for Board {
+    fn hash<H: std::hash::Hasher>(&self, state: &mut H) {
+        self.grid.hash(state);
+        self.next_move.hash(state);
+    }
+}
+
 fn main() {
     let mut board = Board::new();
 
     // let moves = vec![0, 1, 2, 2, 1, 3, 2, 3, 4, 3];
-    let moves = vec![0, 1, 1, 3, 6, 3, 6, 3];
-    for mv in moves {
-        board.drop(mv);
-    }
+    // let moves = vec![0, 1, 1, 3, 6, 3, 6, 3];
+    // for mv in moves {
+    //     board.drop(mv);
+    // }
 
     loop {
         print!("{}", board);
-        println!("{} move:", board.next_move);
-        let mut ply_move = String::new();
-        stdin().read_line(&mut ply_move).unwrap();
-        match ply_move.trim().parse::<usize>() {
-            Err(_) => {
-                println!("Type a number");
-                continue;
-            },
-            Ok(move_x) => {
-                if move_x >= board.grid.width {
-                    println!("Type a number from 0 - {}", board.grid.width-1);
+        if board.next_move == Piece::Yellow {
+            println!("{} move:", board.next_move);
+            let mut ply_move = String::new();
+            stdin().read_line(&mut ply_move).unwrap();
+            match ply_move.trim().parse::<usize>() {
+                Err(_) => {
+                    println!("Type a number");
                     continue;
-                } else if board.drop_zones[move_x] <= 0 {
-                    println!("Can't move there");
-                    continue;
-                } else {
-                    board.drop(move_x);
+                },
+                Ok(move_x) => {
+                    if move_x >= board.grid.width {
+                        println!("Type a number from 0 - {}", board.grid.width-1);
+                        continue;
+                    } else if board.drop_zones[move_x] <= 0 {
+                        println!("Can't move there");
+                        continue;
+                    } else {
+                        board.drop(move_x);
+                    }
                 }
             }
+        } else {
+            let moves_scores = board.moves().into_iter().map(|b| (b.score(), b)).collect::<Vec<_>>();
+            if moves_scores.is_empty() {
+                println!("Tie, nobody wins (this should never occur)");
+                break;
+            }
+            let max_score = moves_scores.iter().map(|(s, _)| s).max().unwrap();
+            let max_scores = moves_scores.iter().filter(|(s, _)| s == max_score).map(|(_, b)| b).collect::<Vec<_>>();
+            let new_board = *max_scores.choose(&mut rand::thread_rng()).unwrap();
+            board = new_board.clone();
         }
         match board.winner {
             Some(winner) => {
