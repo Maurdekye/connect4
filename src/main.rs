@@ -1,8 +1,8 @@
 use rand::seq::SliceRandom;
 use std::{
-    collections::{HashMap, HashSet, hash_map::DefaultHasher},
+    collections::HashSet,
     fmt::{Display, Formatter},
-    io::stdin, hash::Hasher,
+    io::stdin,
 };
 
 trait Search {
@@ -85,21 +85,34 @@ type Position = (usize, usize);
 struct Board {
     grid: Grid<Piece>,
     drop_zones: Vec<usize>,
-    threats: HashMap<Piece, HashSet<Position>>,
+    threats: Vec<(Position, Piece)>,
     winner: Option<Piece>,
     next_move: Piece,
     show_threats: bool,
 }
 
+struct Tallies {
+    red: Vec<Position>,
+    yellow: Vec<Position>,
+    empty: Vec<Position>
+}
+
+impl Tallies {
+    fn get(&mut self, piece: &Piece) -> &mut Vec<Position> {
+        match piece {
+            Piece::Red => &mut self.red,
+            Piece::Yellow => &mut self.yellow,
+            Piece::Empty => &mut self.empty
+        }
+    }
+}
+
 impl Board {
     fn new_with_size(width: usize, height: usize) -> Board {
-        let mut threats: HashMap<Piece, HashSet<Position>> = HashMap::new();
-        threats.insert(Piece::Red, HashSet::new());
-        threats.insert(Piece::Yellow, HashSet::new());
         Board {
             grid: Grid::new(width, height, Piece::Empty),
             drop_zones: vec![height; width],
-            threats: threats,
+            threats: Vec::new(),
             winner: None,
             next_move: Piece::Yellow,
             show_threats: false,
@@ -116,12 +129,10 @@ impl Board {
 
     fn set(&mut self, x: usize, y: usize, piece: Piece) {
         *self.grid.get_mut(x, y) = piece;
-        if self.threats.get(&piece).unwrap().contains(&(x, y)) {
+        if self.threats.contains(&((x, y), piece)) {
             self.winner = Some(piece);
         }
-        self.threats.iter_mut().for_each(|(_, threat_set)| {
-            threat_set.remove(&(x, y));
-        });
+        self.threats.retain(|&(pos, _)| pos != (x, y));
         self.update(x, y);
     }
 
@@ -138,7 +149,28 @@ impl Board {
     }
 
     fn update(&mut self, x: usize, y: usize) {
-        let pos_sets = vec![(-1, -1), (-1, 0), (-1, 1), (0, 1)]
+        // let pos_sets = vec![(-1, -1), (-1, 0), (-1, 1), (0, 1)]
+        //     .iter()
+        //     .map(|(dx, dy)| {
+        //         (-3..=3)
+        //             .map(|d| ((x as i32) + d * dx, (y as i32) + d * dy))
+        //             .filter(|(px, py)| {
+        //                 *px >= 0
+        //                     && *py >= 0
+        //                     && *px < self.grid.width as i32
+        //                     && *py < self.grid.height as i32
+        //             })
+        //             .map(|(px, py)| (px as usize, py as usize))
+        //             .map(|(px, py)| ((px, py), self.grid.get(px, py)))
+        //             .collect::<Vec<_>>()
+        //     })
+        //     .filter(|poses| poses.len() >= 4);
+        // .collect::<Vec<_>>();
+
+        // let all_poses = pos_sets.iter().flatten().map(|(pos, _)| pos).collect::<HashSet<_>>();
+        // self.print_with_pos_set(&all_poses);
+
+        for poses in vec![(-1, -1), (-1, 0), (-1, 1), (0, 1)]
             .iter()
             .map(|(dx, dy)| {
                 (-3..=3)
@@ -154,32 +186,27 @@ impl Board {
                     .collect::<Vec<_>>()
             })
             .filter(|poses| poses.len() >= 4)
-            .collect::<Vec<_>>();
-
-        // let all_poses = pos_sets.iter().flatten().map(|(pos, _)| pos).collect::<HashSet<_>>();
-        // self.print_with_pos_set(&all_poses);
-
-        for poses in pos_sets {
+        {
             // self.print_with_pos_set(&poses.iter().map(|(pos, _)| pos).collect());
-            let mut tallies: HashMap<Piece, HashSet<Position>> = HashMap::new();
-            for piece_type in vec![Piece::Red, Piece::Yellow, Piece::Empty] {
-                tallies.insert(piece_type, HashSet::new());
-            }
+            let mut tallies = Tallies {
+                red: Vec::new(),
+                yellow: Vec::new(),
+                empty: Vec::new(),
+            };
 
             for i in 0..poses.len() {
                 let (pos, piece) = poses[i];
-                tallies.get_mut(piece).unwrap().insert(pos);
+                tallies.get(piece).push(pos);
                 if i >= 4 {
                     let (early_pos, early_piece) = poses[i - 4];
-                    tallies.get_mut(early_piece).unwrap().remove(&early_pos);
+                    tallies.get(early_piece).retain(|&pos| pos != early_pos);
                 }
                 if i >= 3 {
-                    let empties = tallies.get(&Piece::Empty).unwrap();
-                    if empties.len() == 1 {
-                        let gap = empties.iter().next().unwrap();
+                    if tallies.empty.len() == 1 {
+                        let gap = tallies.empty.first().unwrap().clone();
                         for piece in vec![Piece::Red, Piece::Yellow] {
-                            if tallies.get(&piece).unwrap().len() == 3 {
-                                self.threats.get_mut(&piece).unwrap().insert(*gap);
+                            if tallies.get(&piece).len() == 3 {
+                                self.threats.push((gap, piece));
                             }
                         }
                     }
@@ -200,13 +227,8 @@ impl Board {
                         Piece::Red => "0",
                         Piece::Yellow => "O",
                         Piece::Empty => {
-                            let red_threat =
-                                self.threats.get(&Piece::Red).unwrap().contains(&(sx, sy));
-                            let yellow_threat = self
-                                .threats
-                                .get(&Piece::Yellow)
-                                .unwrap()
-                                .contains(&(sx, sy));
+                            let red_threat = self.threats.contains(&((sx, sy), Piece::Red));
+                            let yellow_threat = self.threats.contains(&((sx, sy), Piece::Yellow));
                             match (red_threat, yellow_threat) {
                                 (true, true) => "B",
                                 (true, false) => "R",
@@ -238,8 +260,14 @@ impl Search for Board {
             }
             None => (),
         }
-        self.threats.get(&Piece::Red).unwrap().iter().count() as i32
-            - self.threats.get(&Piece::Yellow).unwrap().iter().count() as i32
+        self.threats
+            .iter()
+            .map(|(_, piece)| match piece {
+                Piece::Red => 1,
+                Piece::Yellow => -1,
+                _ => 0,
+            })
+            .sum()
     }
 
     fn moves(&self) -> BoardMoveIterator {
@@ -263,17 +291,20 @@ impl Display for Board {
                 let char = match piece {
                     Piece::Red => "0",
                     Piece::Yellow => "O",
-                    Piece::Empty => if self.show_threats {
-                        let red_threat = self.threats.get(&Piece::Red).unwrap().contains(&(x, y));
-                        let yellow_threat =
-                            self.threats.get(&Piece::Yellow).unwrap().contains(&(x, y));
-                        match (red_threat, yellow_threat) {
-                            (true, true) => "B",
-                            (true, false) => "R",
-                            (false, true) => "Y",
-                            (false, false) => " ",
+                    Piece::Empty => {
+                        if self.show_threats {
+                            let red_threat = self.threats.contains(&((x, y), Piece::Red));
+                            let yellow_threat = self.threats.contains(&((x, y), Piece::Yellow));
+                            match (red_threat, yellow_threat) {
+                                (true, true) => "B",
+                                (true, false) => "R",
+                                (false, true) => "Y",
+                                (false, false) => " ",
+                            }
+                        } else {
+                            " "
                         }
-                    } else { " " }
+                    }
                 };
                 write!(f, "{} ", char)?;
             }
@@ -305,7 +336,9 @@ impl Iterator for BoardMoveIterator {
     type Item = Board;
 
     fn next(&mut self) -> Option<Self::Item> {
-        while self.move_index < self.board.drop_zones.len() && self.board.drop_zones[self.move_index] == 0 {
+        while self.move_index < self.board.drop_zones.len()
+            && self.board.drop_zones[self.move_index] == 0
+        {
             self.move_index += 1;
         }
         if self.move_index < self.board.drop_zones.len() {
@@ -318,18 +351,6 @@ impl Iterator for BoardMoveIterator {
         }
     }
 }
-
-// fn minimax<T: Search<Score = i32> + Display>(state: &T, depth: usize, maximizing: bool) -> T::Score {
-//     // println!("Depth: {}", depth);
-//     // println!("{}", state);3
-//     // println!("Score: {}", state.score());
-//     if depth == 0 || state.game_over() {
-//         state.score()
-//     } else {
-//         let scores = state.moves().into_iter().map(|child| minimax(&child, depth-1, !maximizing)).collect::<Vec<_>>();
-//         if maximizing { scores.into_iter().max() } else { scores.into_iter().min() }.unwrap()
-//     }
-// }
 
 fn minimax<T: Search<Score = i32> + Display + std::hash::Hash>(
     state: &T,
