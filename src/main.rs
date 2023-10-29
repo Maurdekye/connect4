@@ -1,4 +1,5 @@
 use rand::seq::SliceRandom;
+use rayon::prelude::*;
 use std::{
     collections::HashSet,
     fmt::{Display, Formatter},
@@ -441,10 +442,11 @@ fn main() {
                 }
             }
         } else {
-            let moves_scores = board
-                .moves()
-                .into_iter()
-                .map(|b| (minimax(&b, 5, None, None, false), b))
+            let moves = board
+            .moves().collect::<Vec<_>>();
+            let moves_scores = moves
+                .par_iter()
+                .map(|b: &Board| (minimax(b, 7, None, None, false), b))
                 .collect::<Vec<_>>();
             for (score, _) in moves_scores.iter() {
                 print!("{}, ", score);
@@ -461,7 +463,7 @@ fn main() {
                 .map(|(_, b)| b)
                 .collect::<Vec<_>>();
             let new_board = *max_scores.choose(&mut rand::thread_rng()).unwrap();
-            board = new_board.clone();
+            board = (*new_board).clone();
         }
         match board.winner {
             Some(winner) => {
