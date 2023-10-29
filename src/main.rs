@@ -1,8 +1,8 @@
 use rand::seq::SliceRandom;
 use std::{
-    collections::{HashMap, HashSet},
+    collections::{HashMap, HashSet, hash_map::DefaultHasher},
     fmt::{Display, Formatter},
-    io::stdin,
+    io::stdin, hash::Hasher,
 };
 
 trait Search {
@@ -98,7 +98,7 @@ impl Board {
         threats.insert(Piece::Yellow, HashSet::new());
         Board {
             grid: Grid::new(width, height, Piece::Empty),
-            drop_zones: vec![height - 1; width],
+            drop_zones: vec![height; width],
             threats: threats,
             winner: None,
             next_move: Piece::Yellow,
@@ -127,8 +127,8 @@ impl Board {
 
     fn drop(&mut self, x: usize) -> Option<usize> {
         if self.drop_zones[x] > 0 {
-            let drop_spot = self.drop_zones[x];
             self.drop_zones[x] -= 1;
+            let drop_spot = self.drop_zones[x];
             self.set(x, drop_spot, self.next_move);
             self.next_move = self.next_move.opponent();
             Some(drop_spot)
@@ -331,7 +331,7 @@ impl Iterator for BoardMoveIterator {
 //     }
 // }
 
-fn minimax<T: Search>(
+fn minimax<T: Search<Score = i32> + Display + std::hash::Hash>(
     state: &T,
     depth: usize,
     alpha: Option<T::Score>,
@@ -340,15 +340,22 @@ fn minimax<T: Search>(
 ) -> T::Score {
     let omax = |a: Option<T::Score>, b: T::Score| a.map_or(Some(b), |v| Some(v.max(b)));
     let omin = |a: Option<T::Score>, b: T::Score| a.map_or(Some(b), |v| Some(v.min(b)));
+    // let mut hasher = DefaultHasher::new();
+    // state.hash(&mut hasher);
+    // let hash = hasher.finish();
+    // println!("Parent {} at depth {} with score {}:", hash, depth, state.score());
+    // println!("{}", state);
     if depth == 0 || state.game_over() {
         state.score()
     } else if maximizing {
         let mut max_eval: Option<T::Score> = None;
         let mut new_alpha: Option<T::Score> = alpha;
         for child in state.moves() {
+            // println!("Max child of {} with score {}:", hash, child.score());
+            // println!("{}", child);
             let child_score = minimax(&child, depth - 1, new_alpha, beta, false);
             max_eval = omax(max_eval, child_score);
-            // new_alpha = omax(new_alpha, child_score);
+            new_alpha = omax(new_alpha, child_score);
             // if beta.map_or(true, |b| new_alpha.map_or(true, |a| b <= a)) {
             //     break;
             // }
@@ -358,9 +365,11 @@ fn minimax<T: Search>(
         let mut min_eval: Option<T::Score> = None;
         let mut new_beta = beta;
         for child in state.moves() {
+            // println!("Min child of {} with score {}:", hash, child.score());
+            // println!("{}", child);
             let child_score = minimax(&child, depth - 1, alpha, new_beta, true);
             min_eval = omin(min_eval, child_score);
-            // new_beta = omin(new_beta, child_score);
+            new_beta = omin(new_beta, child_score);
             // if new_beta.map_or(true, |b| alpha.map_or(true, |a| b <= a)) {
             //     break;
             // }
@@ -375,10 +384,10 @@ fn main() {
 
     // let moves = vec![0, 1, 2, 2, 1, 3, 2, 3, 4, 3];
     // let moves = vec![0, 1, 1, 3, 6, 3, 6, 3];
-    let moves = vec![3, 3, 3, 6, 5, 5, 2, 6, 2];
-    for mv in moves {
-        board.drop(mv);
-    }
+    // let moves = vec![3, 3, 3, 6, 5, 5, 2, 6, 2];
+    // for mv in moves {
+    //     board.drop(mv);
+    // }
 
     loop {
         print!("{}", board);
@@ -407,8 +416,12 @@ fn main() {
             let moves_scores = board
                 .moves()
                 .into_iter()
-                .map(|b| (minimax(&b, 2, None, None, true), b))
+                .map(|b| (minimax(&b, 5, None, None, false), b))
                 .collect::<Vec<_>>();
+            for (score, _) in moves_scores.iter() {
+                print!("{}, ", score);
+            }
+            println!();
             if moves_scores.is_empty() {
                 println!("Tie, nobody wins (this should never occur)");
                 break;
