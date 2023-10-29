@@ -358,6 +358,7 @@ impl Iterator for BoardMoveIterator {
     }
 }
 
+/// alpha-beta pruning doesnt work for some reason :/
 fn minimax<T: Search>(
     state: &T,
     depth: usize,
