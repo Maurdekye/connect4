@@ -94,7 +94,7 @@ struct Board {
 struct Tallies {
     red: Vec<Position>,
     yellow: Vec<Position>,
-    empty: Vec<Position>
+    empty: Vec<Position>,
 }
 
 impl Tallies {
@@ -102,7 +102,7 @@ impl Tallies {
         match piece {
             Piece::Red => &mut self.red,
             Piece::Yellow => &mut self.yellow,
-            Piece::Empty => &mut self.empty
+            Piece::Empty => &mut self.empty,
         }
     }
 }
@@ -253,19 +253,25 @@ impl Search for Board {
         match self.winner {
             Some(piece) => {
                 if piece == Piece::Yellow {
-                    return -1000;
+                    return i32::MIN;
                 } else {
-                    return 1000;
+                    return i32::MAX;
                 }
             }
             None => (),
         }
         self.threats
             .iter()
-            .map(|(_, piece)| match piece {
-                Piece::Red => 1,
-                Piece::Yellow => -1,
-                _ => 0,
+            .map(|&((_, y), piece)| {
+                if y == self.grid.height - 1 {
+                    0
+                } else {
+                    match piece {
+                        Piece::Red => 2i32.pow(y as u32),
+                        Piece::Yellow => -2i32.pow(y as u32),
+                        _ => 0,
+                    }
+                }
             })
             .sum()
     }
@@ -352,7 +358,7 @@ impl Iterator for BoardMoveIterator {
     }
 }
 
-fn minimax<T: Search<Score = i32> + Display + std::hash::Hash>(
+fn minimax<T: Search>(
     state: &T,
     depth: usize,
     alpha: Option<T::Score>,
